@@ -4,23 +4,20 @@ import {
   Plus, 
   Search, 
   ArrowUpRight, 
-  ArrowDownLeft, 
   LayoutDashboard, 
   FileText, 
   ChevronRight,
   DollarSign,
-  Calendar,
   Trash2,
   Package,
-  ShoppingBag,
-  AlertCircle
+  Menu, // Mobile Menu Icon
+  X     // Close Menu Icon
 } from 'lucide-react';
 import { initializeApp } from 'firebase/app';
 import { 
   getAuth, 
   signInAnonymously, 
-  onAuthStateChanged,
-  signInWithCustomToken 
+  onAuthStateChanged
 } from 'firebase/auth';
 import { 
   getFirestore, 
@@ -30,28 +27,25 @@ import {
   doc, 
   deleteDoc,
   onSnapshot, 
-  serverTimestamp,
-  query,
-  orderBy
+  serverTimestamp
 } from 'firebase/firestore';
 
 // --- FIREBASE CONFIGURATION ---
-// TODO: Replace these values with your own from the Firebase Console
+// REPLACE WITH YOUR REAL KEYS FROM FIREBASE CONSOLE
 const firebaseConfig = {
-  apiKey: "AIzaSyBBgp5b0RqfEV8TWB4sf-1MQvAM9GnmQQA",
-  authDomain: "credit-manager-f1b07.firebaseapp.com",
-  projectId: "credit-manager-f1b07",
-  storageBucket: "credit-manager-f1b07.firebasestorage.app",
-  messagingSenderId: "158025094034",
-  appId: "1:158025094034:web:0ac703f9ce23c5f62c274b",
-  measurementId: "G-HWE9THWHSH"
+  apiKey: "YOUR_REAL_API_KEY_HERE",
+  authDomain: "YOUR_PROJECT.firebaseapp.com",
+  projectId: "YOUR_PROJECT_ID",
+  storageBucket: "YOUR_PROJECT.firebasestorage.app",
+  messagingSenderId: "123456789",
+  appId: "1:123456789:web:abcdef"
 };
 
 // Initialize Firebase
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
-const appId = "my-credit-app"; // You can keep this name
+const appId = "my-credit-app"; 
 
 // --- Components ---
 
@@ -69,21 +63,24 @@ const Badge = ({ type }) => {
         ? 'bg-red-100 text-red-700' 
         : 'bg-green-100 text-green-700'
     }`}>
-      {isPurchase ? 'Purchase' : 'Payment'}
+      {isPurchase ? 'Debit' : 'Credit'}
     </span>
   );
 };
 
 export default function App() {
   const [user, setUser] = useState(null);
-  const [view, setView] = useState('dashboard'); // dashboard, customer-details, inventory
+  const [view, setView] = useState('dashboard');
+  
+  // Mobile Menu State
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   
   // Data State
   const [customers, setCustomers] = useState([]);
   const [transactions, setTransactions] = useState([]);
   const [products, setProducts] = useState([]);
   
-  // UI State
+  // UI Selection State
   const [selectedCustomerId, setSelectedCustomerId] = useState(null);
   const [isAddCustomerModalOpen, setIsAddCustomerModalOpen] = useState(false);
   const [isAddProductModalOpen, setIsAddProductModalOpen] = useState(false);
@@ -97,113 +94,82 @@ export default function App() {
   const [newProductPrice, setNewProductPrice] = useState('');
   const [newProductStock, setNewProductStock] = useState('');
 
-  const [transType, setTransType] = useState('purchase'); // purchase or payment
+  const [transType, setTransType] = useState('purchase'); 
   const [transAmount, setTransAmount] = useState('');
   const [transDesc, setTransDesc] = useState('');
   const [transDate, setTransDate] = useState(new Date().toISOString().split('T')[0]);
   
-  // Transaction Product Selection
   const [selectedProductId, setSelectedProductId] = useState('');
   const [purchaseQty, setPurchaseQty] = useState(1);
 
   // --- Auth & Data Fetching ---
 
   useEffect(() => {
-    // Simple anonymous sign-in for the manual version
-    signInAnonymously(auth).catch((error) => {
-        console.error("Auth Error. Did you update firebaseConfig at the top of App.jsx?", error);
-    });
-    
-    const unsubscribe = onAuthStateChanged(auth, setUser);
-    return () => unsubscribe();
+    signInAnonymously(auth).catch(e => console.error("Auth Error:", e));
+    return onAuthStateChanged(auth, setUser);
   }, []);
 
-  // Fetch Customers
   useEffect(() => {
     if (!user) return;
     const q = collection(db, 'artifacts', appId, 'public', 'data', 'customers');
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-      setCustomers(data);
-    }, (error) => console.error("Error fetching customers:", error));
-    return () => unsubscribe();
+    return onSnapshot(q, (snapshot) => {
+      setCustomers(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    });
   }, [user]);
 
-  // Fetch Transactions
   useEffect(() => {
     if (!user) return;
     const q = collection(db, 'artifacts', appId, 'public', 'data', 'transactions');
-    const unsubscribe = onSnapshot(q, (snapshot) => {
+    return onSnapshot(q, (snapshot) => {
       const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
       data.sort((a, b) => new Date(b.date) - new Date(a.date));
       setTransactions(data);
-    }, (error) => console.error("Error fetching transactions:", error));
-    return () => unsubscribe();
+    });
   }, [user]);
 
-  // Fetch Products
   useEffect(() => {
     if (!user) return;
     const q = collection(db, 'artifacts', appId, 'public', 'data', 'products');
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-      setProducts(data);
-    }, (error) => console.error("Error fetching products:", error));
-    return () => unsubscribe();
+    return onSnapshot(q, (snapshot) => {
+      setProducts(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    });
   }, [user]);
 
-  // --- Logic & Actions ---
+  // --- Logic ---
 
   const handleAddCustomer = async (e) => {
     e.preventDefault();
     if (!user || !newCustomerName) return;
     try {
-      await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'customers'), {
-        name: newCustomerName,
-        phone: newCustomerPhone,
-        balance: 0,
-        createdAt: serverTimestamp()
-      });
-      setNewCustomerName('');
-      setNewCustomerPhone('');
-      setIsAddCustomerModalOpen(false);
-    } catch (err) { console.error(err); }
+        await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'customers'), {
+        name: newCustomerName, phone: newCustomerPhone, balance: 0, createdAt: serverTimestamp()
+        });
+        setNewCustomerName(''); setNewCustomerPhone(''); setIsAddCustomerModalOpen(false);
+    } catch(e) { console.error(e); }
   };
 
   const handleAddProduct = async (e) => {
     e.preventDefault();
     if (!user || !newProductName) return;
     try {
-      await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'products'), {
-        name: newProductName,
-        price: parseFloat(newProductPrice) || 0,
-        stock: parseInt(newProductStock) || 0,
-        createdAt: serverTimestamp()
-      });
-      setNewProductName('');
-      setNewProductPrice('');
-      setNewProductStock('');
-      setIsAddProductModalOpen(false);
-    } catch (err) { console.error(err); }
+        await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'products'), {
+        name: newProductName, price: parseFloat(newProductPrice) || 0, stock: parseInt(newProductStock) || 0, createdAt: serverTimestamp()
+        });
+        setNewProductName(''); setNewProductPrice(''); setNewProductStock(''); setIsAddProductModalOpen(false);
+    } catch(e) { console.error(e); }
   };
 
   const handleAddTransaction = async (e) => {
     e.preventDefault();
     if (!user || !selectedCustomerId || !transAmount) return;
-
     const amount = parseFloat(transAmount);
-    if (isNaN(amount)) return;
-
-    // Validation for Stock
+    
+    // Inventory Logic
     let finalDesc = transDesc;
     if (transType === 'purchase' && selectedProductId) {
       const product = products.find(p => p.id === selectedProductId);
       if (product) {
-        if (product.stock < purchaseQty) {
-          alert(`Insufficient stock! Only ${product.stock} available.`);
-          return;
-        }
-        // Update Inventory
+        if (product.stock < purchaseQty) { alert("Insufficient stock!"); return; }
         await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'products', selectedProductId), {
           stock: product.stock - parseInt(purchaseQty)
         });
@@ -212,189 +178,162 @@ export default function App() {
     }
 
     try {
-      // 1. Add Transaction
-      await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'transactions'), {
-        customerId: selectedCustomerId,
-        type: transType,
-        amount: amount,
-        description: finalDesc,
-        date: transDate,
-        productId: selectedProductId || null,
-        quantity: purchaseQty || 0,
-        createdAt: serverTimestamp()
-      });
+        await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'transactions'), {
+        customerId: selectedCustomerId, type: transType, amount, description: finalDesc, date: transDate, createdAt: serverTimestamp()
+        });
 
-      // 2. Update Customer Balance
-      const customer = customers.find(c => c.id === selectedCustomerId);
-      const newBalance = transType === 'purchase' 
-        ? (customer.balance || 0) + amount 
-        : (customer.balance || 0) - amount;
+        const customer = customers.find(c => c.id === selectedCustomerId);
+        const newBalance = transType === 'purchase' ? (customer.balance || 0) + amount : (customer.balance || 0) - amount;
+        await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'customers', selectedCustomerId), { balance: newBalance });
 
-      await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'customers', selectedCustomerId), {
-        balance: newBalance
-      });
-
-      // Reset Form
-      setTransAmount('');
-      setTransDesc('');
-      setSelectedProductId('');
-      setPurchaseQty(1);
-      setIsTransactionModalOpen(false);
-    } catch (err) {
-      console.error("Error adding transaction", err);
-    }
+        setTransAmount(''); setTransDesc(''); setSelectedProductId(''); setIsTransactionModalOpen(false);
+    } catch(e) { console.error(e); }
   };
 
   const handleDeleteCustomer = async (id) => {
-    if(!confirm("Are you sure?")) return;
-    try {
-      await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'customers', id));
-      if (selectedCustomerId === id) setView('dashboard');
-    } catch(err) { console.error(err); }
+    if(confirm("Delete customer?")) {
+        await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'customers', id));
+        if (selectedCustomerId === id) setView('dashboard');
+    }
   };
   
   const handleDeleteProduct = async (id) => {
-    if(!confirm("Delete this product?")) return;
-    try {
-      await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'products', id));
-    } catch(err) { console.error(err); }
+    if(confirm("Delete product?")) await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'products', id));
   };
-
-  // --- Derived State & Helpers ---
 
   const totalOutstanding = useMemo(() => customers.reduce((acc, curr) => acc + (curr.balance || 0), 0), [customers]);
   const selectedCustomer = useMemo(() => customers.find(c => c.id === selectedCustomerId), [customers, selectedCustomerId]);
   const customerTransactions = useMemo(() => transactions.filter(t => t.customerId === selectedCustomerId), [transactions, selectedCustomerId]);
-  
-  // Auto-calculate amount when product changes
+
+  // Auto-set amount from inventory selection
   useEffect(() => {
     if (transType === 'purchase' && selectedProductId) {
       const product = products.find(p => p.id === selectedProductId);
-      if (product) {
-        setTransAmount((product.price * purchaseQty).toFixed(2));
-      }
+      if (product) setTransAmount((product.price * purchaseQty).toFixed(2));
     }
   }, [selectedProductId, purchaseQty, products, transType]);
 
-  // --- Render ---
+  // Mobile Helper: Close sidebar when clicking a link
+  const navTo = (v) => {
+    setView(v);
+    setIsSidebarOpen(false);
+  }
 
-  if (!user) return <div className="flex items-center justify-center h-screen text-slate-500">Connecting to database...</div>;
+  if (!user) return <div className="h-screen flex items-center justify-center text-slate-500">Connecting...</div>;
 
   return (
     <div className="flex h-screen bg-slate-50 text-slate-800 font-sans overflow-hidden">
       
-      {/* Sidebar */}
-      <div className="w-64 bg-slate-900 text-slate-300 flex flex-col shadow-xl flex-shrink-0">
-        <div className="p-6 border-b border-slate-800">
+      {/* --- MOBILE SIDEBAR OVERLAY --- */}
+      {isSidebarOpen && (
+        <div 
+          className="fixed inset-0 bg-black/50 z-20 md:hidden backdrop-blur-sm"
+          onClick={() => setIsSidebarOpen(false)}
+        />
+      )}
+
+      {/* --- SIDEBAR --- */}
+      <div className={`
+        fixed inset-y-0 left-0 z-30 w-64 bg-slate-900 text-slate-300 flex flex-col shadow-2xl transition-transform duration-300 ease-in-out
+        ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'}
+        md:translate-x-0 md:static md:inset-auto
+      `}>
+        <div className="p-6 border-b border-slate-800 flex justify-between items-center">
           <h1 className="text-xl font-bold text-white tracking-tight flex items-center gap-2">
             <LayoutDashboard size={20} className="text-blue-400"/>
             Credit<span className="text-blue-400">Ledger</span>
           </h1>
+          {/* Close Button (Mobile Only) */}
+          <button onClick={() => setIsSidebarOpen(false)} className="md:hidden text-slate-400 hover:text-white">
+            <X size={24} />
+          </button>
         </div>
         
         <div className="flex-1 overflow-y-auto p-4 space-y-2">
-          <button 
-            onClick={() => setView('dashboard')}
-            className={`w-full text-left px-4 py-3 rounded-lg transition-colors flex items-center gap-3 ${view === 'dashboard' ? 'bg-blue-600 text-white' : 'hover:bg-slate-800'}`}
-          >
-            <Users size={18} />
-            Customers
+          <button onClick={() => navTo('dashboard')} className={`w-full text-left px-4 py-3 rounded-lg transition-colors flex items-center gap-3 ${view === 'dashboard' ? 'bg-blue-600 text-white' : 'hover:bg-slate-800'}`}>
+            <Users size={18} /> Customers
+          </button>
+          <button onClick={() => navTo('inventory')} className={`w-full text-left px-4 py-3 rounded-lg transition-colors flex items-center gap-3 ${view === 'inventory' ? 'bg-blue-600 text-white' : 'hover:bg-slate-800'}`}>
+            <Package size={18} /> Inventory
           </button>
           
-          <button 
-            onClick={() => setView('inventory')}
-            className={`w-full text-left px-4 py-3 rounded-lg transition-colors flex items-center gap-3 ${view === 'inventory' ? 'bg-blue-600 text-white' : 'hover:bg-slate-800'}`}
-          >
-            <Package size={18} />
-            Inventory
-          </button>
-          
-          <div className="pt-4 pb-2 text-xs font-semibold text-slate-500 uppercase tracking-wider px-4">
-            Total Outstanding
-          </div>
+          <div className="pt-4 pb-2 text-xs font-semibold text-slate-500 uppercase tracking-wider px-4">Total Outstanding</div>
           <div className="px-4">
-            <div className="text-2xl font-bold text-white">
-              ${totalOutstanding.toFixed(2)}
-            </div>
-            <p className="text-xs text-slate-500 mt-1">Due from all profiles</p>
+            <div className="text-2xl font-bold text-white">${totalOutstanding.toFixed(2)}</div>
           </div>
         </div>
 
-        <div className="p-4 border-t border-slate-800 space-y-2">
-          <button 
-            onClick={() => setIsAddCustomerModalOpen(true)}
-            className="w-full flex items-center justify-center gap-2 bg-slate-800 hover:bg-slate-700 text-white py-2 rounded-lg transition-colors text-sm font-medium border border-slate-700"
-          >
+        <div className="p-4 border-t border-slate-800">
+          <button onClick={() => { setIsAddCustomerModalOpen(true); setIsSidebarOpen(false); }} className="w-full flex items-center justify-center gap-2 bg-slate-800 hover:bg-slate-700 text-white py-2 rounded-lg text-sm font-medium border border-slate-700">
             <Plus size={16} /> Add Customer
           </button>
         </div>
       </div>
 
-      {/* Main Content */}
-      <div className="flex-1 flex flex-col overflow-hidden">
+      {/* --- MAIN CONTENT --- */}
+      <div className="flex-1 flex flex-col overflow-hidden w-full">
         
-        <header className="bg-white border-b border-slate-200 h-16 flex items-center justify-between px-8 shadow-sm z-10">
-          <h2 className="text-lg font-semibold text-slate-800 capitalize">
-            {view.replace('-', ' ')}
-          </h2>
-          <div className="text-sm text-slate-500">
-             {new Date().toLocaleDateString(undefined, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
+        {/* Header */}
+        <header className="bg-white border-b border-slate-200 h-16 flex items-center justify-between px-4 md:px-8 shadow-sm z-10 shrink-0">
+          <div className="flex items-center gap-3">
+             {/* Hamburger Menu Button (Mobile Only) */}
+             <button onClick={() => setIsSidebarOpen(true)} className="md:hidden p-2 -ml-2 text-slate-600 hover:bg-slate-100 rounded-lg">
+               <Menu size={24} />
+             </button>
+             <h2 className="text-lg font-semibold text-slate-800 capitalize">{view.replace('-', ' ')}</h2>
+          </div>
+          <div className="text-xs md:text-sm text-slate-500 hidden sm:block">
+             {new Date().toLocaleDateString()}
           </div>
         </header>
 
-        <main className="flex-1 overflow-y-auto bg-slate-50 p-8">
+        <main className="flex-1 overflow-y-auto bg-slate-50 p-4 md:p-8">
           
           {view === 'dashboard' && (
-            <div className="max-w-6xl mx-auto">
-              {/* Stats */}
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-                 <Card className="p-6 border-l-4 border-l-blue-500">
-                    <div className="flex justify-between">
-                       <div><p className="text-sm text-slate-500 font-medium">Active Customers</p><h3 className="text-3xl font-bold text-slate-800 mt-1">{customers.length}</h3></div>
-                       <div className="p-3 bg-blue-50 rounded-full text-blue-600"><Users size={24} /></div>
-                    </div>
+            <div className="max-w-6xl mx-auto pb-20">
+              {/* Stats Grid - Stacks on mobile */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4 md:gap-6 mb-6">
+                 <Card className="p-5 md:p-6 border-l-4 border-l-blue-500 flex justify-between items-center">
+                    <div><p className="text-sm text-slate-500 font-medium">Active Customers</p><h3 className="text-2xl md:text-3xl font-bold text-slate-800">{customers.length}</h3></div>
+                    <div className="p-3 bg-blue-50 rounded-full text-blue-600"><Users size={24} /></div>
                  </Card>
-                 <Card className="p-6 border-l-4 border-l-red-500">
-                    <div className="flex justify-between">
-                       <div><p className="text-sm text-slate-500 font-medium">Total Credit Given</p><h3 className="text-3xl font-bold text-slate-800 mt-1">${totalOutstanding.toFixed(2)}</h3></div>
-                       <div className="p-3 bg-red-50 rounded-full text-red-600"><ArrowUpRight size={24} /></div>
-                    </div>
+                 <Card className="p-5 md:p-6 border-l-4 border-l-red-500 flex justify-between items-center">
+                    <div><p className="text-sm text-slate-500 font-medium">Total Credit</p><h3 className="text-2xl md:text-3xl font-bold text-slate-800">${totalOutstanding.toFixed(2)}</h3></div>
+                    <div className="p-3 bg-red-50 rounded-full text-red-600"><ArrowUpRight size={24} /></div>
                  </Card>
-                 <Card className="p-6 border-l-4 border-l-purple-500">
-                    <div className="flex justify-between">
-                       <div><p className="text-sm text-slate-500 font-medium">Total Products</p><h3 className="text-3xl font-bold text-slate-800 mt-1">{products.length}</h3></div>
-                       <div className="p-3 bg-purple-50 rounded-full text-purple-600"><Package size={24} /></div>
-                    </div>
+                 <Card className="p-5 md:p-6 border-l-4 border-l-purple-500 flex justify-between items-center">
+                    <div><p className="text-sm text-slate-500 font-medium">Products</p><h3 className="text-2xl md:text-3xl font-bold text-slate-800">{products.length}</h3></div>
+                    <div className="p-3 bg-purple-50 rounded-full text-purple-600"><Package size={24} /></div>
                  </Card>
               </div>
 
-              {/* Customers Table */}
+              {/* Customers Table - Horizontal Scroll on Mobile */}
               <Card className="overflow-hidden">
-                <div className="px-6 py-4 border-b border-slate-100 bg-slate-50/50 flex justify-between items-center">
+                <div className="px-4 py-4 border-b border-slate-100 bg-slate-50/50 flex flex-col md:flex-row gap-4 justify-between md:items-center">
                    <h3 className="font-semibold text-slate-800">Credit Holders</h3>
-                   <div className="relative">
+                   <div className="relative w-full md:w-auto">
                      <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"/>
-                     <input type="text" placeholder="Search customers..." className="pl-9 pr-4 py-1.5 text-sm border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 w-64"/>
+                     <input type="text" placeholder="Search..." className="w-full md:w-64 pl-9 pr-4 py-2 text-sm border border-slate-300 rounded-md focus:ring-2 focus:ring-blue-500"/>
                    </div>
                 </div>
                 <div className="overflow-x-auto">
-                  <table className="w-full text-sm text-left">
+                  <table className="w-full text-sm text-left whitespace-nowrap">
                     <thead className="bg-slate-50 text-slate-500 font-medium border-b border-slate-200">
                       <tr>
-                        <th className="px-6 py-3">Customer Name</th>
+                        <th className="px-6 py-3">Name</th>
                         <th className="px-6 py-3">Contact</th>
-                        <th className="px-6 py-3 text-right">Current Due</th>
+                        <th className="px-6 py-3 text-right">Due</th>
                         <th className="px-6 py-3 text-center">Action</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
-                      {customers.map(customer => (
-                        <tr key={customer.id} className="hover:bg-slate-50/80 transition-colors">
-                          <td className="px-6 py-4 font-medium text-slate-800">{customer.name}</td>
-                          <td className="px-6 py-4 text-slate-500">{customer.phone}</td>
-                          <td className="px-6 py-4 text-right font-bold text-slate-700">${(customer.balance || 0).toFixed(2)}</td>
-                          <td className="px-6 py-4 flex justify-center">
-                             <button onClick={() => { setSelectedCustomerId(customer.id); setView('customer-details'); }} className="px-3 py-1.5 bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 rounded text-xs font-medium flex items-center gap-1 shadow-sm">View <ChevronRight size={14}/></button>
+                      {customers.map(c => (
+                        <tr key={c.id} className="hover:bg-slate-50">
+                          <td className="px-6 py-4 font-medium">{c.name}</td>
+                          <td className="px-6 py-4 text-slate-500">{c.phone}</td>
+                          <td className="px-6 py-4 text-right font-bold text-slate-700">${(c.balance || 0).toFixed(2)}</td>
+                          <td className="px-6 py-4 text-center">
+                             <button onClick={() => { setSelectedCustomerId(c.id); setView('customer-details'); }} className="inline-flex items-center gap-1 px-3 py-1.5 border rounded text-xs hover:bg-slate-50">View <ChevronRight size={14}/></button>
                           </td>
                         </tr>
                       ))}
@@ -406,97 +345,69 @@ export default function App() {
           )}
 
           {view === 'inventory' && (
-             <div className="max-w-6xl mx-auto">
-                <div className="flex justify-between items-end mb-6">
-                   <h2 className="text-2xl font-bold text-slate-800">Product Inventory</h2>
-                   <button onClick={() => setIsAddProductModalOpen(true)} className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg font-medium transition-colors shadow-sm">
-                      <Plus size={18} /> Add New Product
+             <div className="max-w-6xl mx-auto pb-20">
+                <div className="flex flex-col md:flex-row justify-between items-start md:items-end mb-6 gap-4">
+                   <h2 className="text-2xl font-bold text-slate-800">Inventory</h2>
+                   <button onClick={() => setIsAddProductModalOpen(true)} className="w-full md:w-auto flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg font-medium shadow-sm">
+                      <Plus size={18} /> Add Product
                    </button>
                 </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                   {products.map(product => (
-                      <Card key={product.id} className="p-5 hover:shadow-md transition-shadow">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                   {products.map(p => (
+                      <Card key={p.id} className="p-5 flex flex-col justify-between">
                          <div className="flex justify-between items-start">
-                            <div>
-                               <h3 className="font-bold text-lg text-slate-800">{product.name}</h3>
-                               <p className="text-slate-500 text-sm mt-1">Price: ${product.price?.toFixed(2)}</p>
-                            </div>
-                            <div className="text-slate-300"><Package size={28}/></div>
+                            <div><h3 className="font-bold text-lg">{p.name}</h3><p className="text-slate-500 text-sm">${p.price?.toFixed(2)}</p></div>
+                            <Package size={24} className="text-slate-300"/>
                          </div>
-                         <div className="mt-6 flex justify-between items-end">
+                         <div className="mt-4 flex justify-between items-end">
                             <div>
-                               <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider">In Stock</p>
-                               <p className={`text-2xl font-bold mt-1 ${product.stock < 10 ? 'text-red-600' : 'text-slate-700'}`}>
-                                  {product.stock} <span className="text-sm font-normal text-slate-400">units</span>
-                               </p>
+                               <p className="text-xs font-semibold text-slate-400 uppercase">Stock</p>
+                               <p className={`text-xl font-bold ${p.stock < 10 ? 'text-red-600' : 'text-slate-700'}`}>{p.stock}</p>
                             </div>
-                            <button onClick={() => handleDeleteProduct(product.id)} className="text-slate-300 hover:text-red-500 transition-colors"><Trash2 size={18}/></button>
+                            <button onClick={() => handleDeleteProduct(p.id)} className="text-slate-300 hover:text-red-500"><Trash2 size={18}/></button>
                          </div>
-                         {product.stock < 10 && (
-                            <div className="mt-4 flex items-center gap-1.5 text-xs text-red-600 bg-red-50 px-3 py-2 rounded-full w-fit">
-                               <AlertCircle size={14}/> Low stock warning
-                            </div>
-                         )}
                       </Card>
                    ))}
                 </div>
-                
-                {products.length === 0 && (
-                   <div className="text-center py-20 bg-white rounded-xl border border-dashed border-slate-300">
-                      <ShoppingBag size={48} className="mx-auto text-slate-300 mb-4"/>
-                      <p className="text-slate-500">Your inventory is empty.</p>
-                      <button onClick={() => setIsAddProductModalOpen(true)} className="mt-2 text-blue-600 font-medium hover:underline">Add your first product</button>
-                   </div>
-                )}
              </div>
           )}
 
           {view === 'customer-details' && selectedCustomer && (
-            <div className="max-w-5xl mx-auto">
-               <button onClick={() => setView('dashboard')} className="mb-6 text-sm text-slate-500 hover:text-slate-800 flex items-center gap-1">
-                 &larr; Back to Dashboard
-               </button>
+            <div className="max-w-5xl mx-auto pb-20">
+               <button onClick={() => setView('dashboard')} className="mb-4 text-sm text-slate-500 hover:text-slate-800 flex items-center gap-1">&larr; Back</button>
 
-               <div className="flex flex-col md:flex-row gap-6 mb-8">
-                  <Card className="flex-1 p-6 relative overflow-hidden">
-                    <div className="absolute top-0 right-0 p-4 opacity-10"><Users size={120} /></div>
-                    <div className="relative z-10">
-                       <h1 className="text-3xl font-bold text-slate-800">{selectedCustomer.name}</h1>
-                       <p className="text-slate-500 mt-1 flex items-center gap-2">{selectedCustomer.phone}</p>
-                       <div className="mt-8">
-                         <p className="text-sm font-semibold text-slate-400 uppercase tracking-wider">Total Due Amount</p>
-                         <div className={`text-4xl font-bold mt-2 ${selectedCustomer.balance > 0 ? 'text-red-600' : 'text-green-600'}`}>${(selectedCustomer.balance || 0).toFixed(2)}</div>
+               <div className="flex flex-col lg:flex-row gap-6 mb-8">
+                  <Card className="flex-1 p-6">
+                       <h1 className="text-2xl font-bold text-slate-800">{selectedCustomer.name}</h1>
+                       <p className="text-slate-500">{selectedCustomer.phone}</p>
+                       <div className="mt-6">
+                         <p className="text-xs font-bold text-slate-400 uppercase">Total Due</p>
+                         <div className={`text-4xl font-bold ${selectedCustomer.balance > 0 ? 'text-red-600' : 'text-green-600'}`}>${(selectedCustomer.balance || 0).toFixed(2)}</div>
                        </div>
-                       <button onClick={() => handleDeleteCustomer(selectedCustomer.id)} className="mt-6 text-red-500 hover:text-red-700 text-sm flex items-center gap-1"><Trash2 size={14} /> Delete Profile</button>
-                    </div>
+                       <button onClick={() => handleDeleteCustomer(selectedCustomer.id)} className="mt-4 text-red-500 text-sm flex items-center gap-1"><Trash2 size={14} /> Delete Profile</button>
                   </Card>
 
-                  <Card className="w-full md:w-80 p-6 flex flex-col justify-center gap-4 bg-slate-800 text-white border-slate-700">
-                      <h3 className="font-semibold text-slate-200">Quick Actions</h3>
-                      <button onClick={() => { setTransType('purchase'); setIsTransactionModalOpen(true); }} className="w-full py-3 bg-red-500 hover:bg-red-600 rounded-lg font-semibold flex items-center justify-center gap-2 transition-colors shadow-lg shadow-red-900/20"><Plus size={18}/> New Purchase (Credit)</button>
-                      <button onClick={() => { setTransType('payment'); setIsTransactionModalOpen(true); }} className="w-full py-3 bg-emerald-500 hover:bg-emerald-600 rounded-lg font-semibold flex items-center justify-center gap-2 transition-colors shadow-lg shadow-emerald-900/20"><DollarSign size={18}/> Record Payment</button>
+                  <Card className="w-full lg:w-80 p-4 bg-slate-800 text-white flex flex-col justify-center gap-3">
+                      <h3 className="font-semibold text-slate-200">Actions</h3>
+                      <button onClick={() => { setTransType('purchase'); setIsTransactionModalOpen(true); }} className="w-full py-3 bg-red-500 hover:bg-red-600 rounded-lg font-bold flex justify-center gap-2"><Plus size={18}/> Add Purchase</button>
+                      <button onClick={() => { setTransType('payment'); setIsTransactionModalOpen(true); }} className="w-full py-3 bg-emerald-500 hover:bg-emerald-600 rounded-lg font-bold flex justify-center gap-2"><DollarSign size={18}/> Record Payment</button>
                   </Card>
                </div>
 
-               <Card>
-                  <div className="px-6 py-4 border-b border-slate-200 bg-slate-50/50 flex justify-between items-center">
-                    <h3 className="font-semibold text-slate-800 flex items-center gap-2"><FileText size={18} className="text-slate-400"/> Transaction History</h3>
-                  </div>
+               <Card className="overflow-hidden">
+                  <div className="px-4 py-3 border-b bg-slate-50/50 font-semibold text-slate-700">History</div>
                   <div className="overflow-x-auto">
-                    <table className="w-full text-sm text-left">
-                       <thead className="bg-slate-50 text-slate-500 font-medium border-b border-slate-200">
-                         <tr><th className="px-6 py-3">Date</th><th className="px-6 py-3">Description</th><th className="px-6 py-3">Type</th><th className="px-6 py-3 text-right">Amount</th></tr>
+                    <table className="w-full text-sm text-left whitespace-nowrap">
+                       <thead className="bg-slate-50 text-slate-500 border-b">
+                         <tr><th className="px-6 py-3">Date</th><th className="px-6 py-3">Desc</th><th className="px-6 py-3">Type</th><th className="px-6 py-3 text-right">Amt</th></tr>
                        </thead>
-                       <tbody className="divide-y divide-slate-100">
-                          {customerTransactions.length === 0 ? (
-                            <tr><td colSpan="4" className="p-8 text-center text-slate-400">No transactions recorded yet.</td></tr>
-                          ) : customerTransactions.map(t => (
-                            <tr key={t.id} className="hover:bg-slate-50/50">
-                               <td className="px-6 py-3 text-slate-600 font-mono text-xs">{t.date}</td>
-                               <td className="px-6 py-3 text-slate-800">{t.description || '-'}</td>
+                       <tbody>
+                          {customerTransactions.map(t => (
+                            <tr key={t.id} className="hover:bg-slate-50">
+                               <td className="px-6 py-3 text-slate-500 text-xs">{t.date}</td>
+                               <td className="px-6 py-3">{t.description || '-'}</td>
                                <td className="px-6 py-3"><Badge type={t.type} /></td>
-                               <td className={`px-6 py-3 text-right font-medium ${t.type === 'purchase' ? 'text-red-600' : 'text-emerald-600'}`}>{t.type === 'purchase' ? '+' : '-'}${t.amount.toFixed(2)}</td>
+                               <td className={`px-6 py-3 text-right font-bold ${t.type === 'purchase' ? 'text-red-600' : 'text-emerald-600'}`}>${t.amount.toFixed(2)}</td>
                             </tr>
                           ))}
                        </tbody>
@@ -508,100 +419,56 @@ export default function App() {
         </main>
       </div>
 
-      {/* --- Modals --- */}
-
-      {/* Add Customer Modal */}
-      {isAddCustomerModalOpen && (
+      {/* --- MODALS (Full Width on Mobile) --- */}
+      {(isAddCustomerModalOpen || isAddProductModalOpen || isTransactionModalOpen) && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
-           <Card className="w-full max-w-md p-6">
-              <h3 className="text-lg font-bold text-slate-800 mb-4">Add New Customer</h3>
-              <form onSubmit={handleAddCustomer} className="space-y-4">
-                 <div><label className="block text-sm font-medium text-slate-700 mb-1">Full Name</label><input autoFocus type="text" required className="w-full border border-slate-300 rounded px-3 py-2" value={newCustomerName} onChange={(e) => setNewCustomerName(e.target.value)}/></div>
-                 <div><label className="block text-sm font-medium text-slate-700 mb-1">Phone Number</label><input type="text" className="w-full border border-slate-300 rounded px-3 py-2" value={newCustomerPhone} onChange={(e) => setNewCustomerPhone(e.target.value)}/></div>
-                 <div className="flex justify-end gap-3 mt-6"><button type="button" onClick={() => setIsAddCustomerModalOpen(false)} className="px-4 py-2 text-slate-600 hover:bg-slate-100 rounded">Cancel</button><button type="submit" className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 font-medium">Create Profile</button></div>
-              </form>
+           <Card className="w-full max-w-md p-6 max-h-[90vh] overflow-y-auto">
+              
+              {/* Customer Modal */}
+              {isAddCustomerModalOpen && (
+                  <form onSubmit={handleAddCustomer} className="space-y-4">
+                     <h3 className="text-lg font-bold">New Customer</h3>
+                     <input placeholder="Name" autoFocus required className="w-full border border-slate-300 p-2 rounded" value={newCustomerName} onChange={e => setNewCustomerName(e.target.value)}/>
+                     <input placeholder="Phone" className="w-full border border-slate-300 p-2 rounded" value={newCustomerPhone} onChange={e => setNewCustomerPhone(e.target.value)}/>
+                     <div className="flex justify-end gap-2"><button type="button" onClick={() => setIsAddCustomerModalOpen(false)} className="px-4 py-2 text-slate-500">Cancel</button><button className="px-4 py-2 bg-blue-600 text-white rounded">Save</button></div>
+                  </form>
+              )}
+              
+              {/* Product Modal */}
+              {isAddProductModalOpen && (
+                  <form onSubmit={handleAddProduct} className="space-y-4">
+                     <h3 className="text-lg font-bold">New Product</h3>
+                     <input placeholder="Product Name" autoFocus required className="w-full border border-slate-300 p-2 rounded" value={newProductName} onChange={e => setNewProductName(e.target.value)}/>
+                     <div className="grid grid-cols-2 gap-4">
+                        <input type="number" placeholder="Stock" required className="w-full border border-slate-300 p-2 rounded" value={newProductStock} onChange={e => setNewProductStock(e.target.value)}/>
+                        <input type="number" step="0.01" placeholder="Price" required className="w-full border border-slate-300 p-2 rounded" value={newProductPrice} onChange={e => setNewProductPrice(e.target.value)}/>
+                     </div>
+                     <div className="flex justify-end gap-2"><button type="button" onClick={() => setIsAddProductModalOpen(false)} className="px-4 py-2 text-slate-500">Cancel</button><button className="px-4 py-2 bg-blue-600 text-white rounded">Save</button></div>
+                  </form>
+              )}
+              
+              {/* Transaction Modal */}
+              {isTransactionModalOpen && (
+                  <form onSubmit={handleAddTransaction} className="space-y-4">
+                     <div className="flex justify-between"><h3 className="text-lg font-bold">New Transaction</h3><Badge type={transType}/></div>
+                     {transType === 'purchase' && (
+                        <div className="bg-slate-50 p-3 rounded border border-slate-200">
+                           <select className="w-full border border-slate-300 p-2 rounded mb-2" value={selectedProductId} onChange={e => setSelectedProductId(e.target.value)}>
+                              <option value="">-- Custom Item --</option>
+                              {products.map(p => <option key={p.id} value={p.id}>{p.name} (${p.price})</option>)}
+                           </select>
+                           {selectedProductId && <input type="number" min="1" className="w-full border border-slate-300 p-2 rounded" value={purchaseQty} onChange={e => setPurchaseQty(e.target.value)}/>}
+                        </div>
+                     )}
+                     <input type="number" step="0.01" placeholder="Amount" required className="w-full border border-slate-300 p-2 rounded font-bold text-lg" value={transAmount} onChange={e => setTransAmount(e.target.value)}/>
+                     <input placeholder="Description" className="w-full border border-slate-300 p-2 rounded" value={transDesc} onChange={e => setTransDesc(e.target.value)}/>
+                     <input type="date" required className="w-full border border-slate-300 p-2 rounded" value={transDate} onChange={e => setTransDate(e.target.value)}/>
+                     <div className="flex justify-end gap-2"><button type="button" onClick={() => setIsTransactionModalOpen(false)} className="px-4 py-2 text-slate-500">Cancel</button><button className={`px-4 py-2 text-white rounded ${transType === 'purchase' ? 'bg-red-600' : 'bg-green-600'}`}>Save</button></div>
+                  </form>
+              )}
            </Card>
         </div>
       )}
-
-      {/* Add Product Modal */}
-      {isAddProductModalOpen && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
-           <Card className="w-full max-w-md p-6">
-              <h3 className="text-lg font-bold text-slate-800 mb-4">Add New Inventory Item</h3>
-              <form onSubmit={handleAddProduct} className="space-y-4">
-                 <div><label className="block text-sm font-medium text-slate-700 mb-1">Product Name</label><input autoFocus type="text" required className="w-full border border-slate-300 rounded px-3 py-2" value={newProductName} onChange={(e) => setNewProductName(e.target.value)}/></div>
-                 <div className="grid grid-cols-2 gap-4">
-                    <div><label className="block text-sm font-medium text-slate-700 mb-1">Stock Qty</label><input type="number" required className="w-full border border-slate-300 rounded px-3 py-2" value={newProductStock} onChange={(e) => setNewProductStock(e.target.value)}/></div>
-                    <div><label className="block text-sm font-medium text-slate-700 mb-1">Unit Price ($)</label><input type="number" step="0.01" required className="w-full border border-slate-300 rounded px-3 py-2" value={newProductPrice} onChange={(e) => setNewProductPrice(e.target.value)}/></div>
-                 </div>
-                 <div className="flex justify-end gap-3 mt-6"><button type="button" onClick={() => setIsAddProductModalOpen(false)} className="px-4 py-2 text-slate-600 hover:bg-slate-100 rounded">Cancel</button><button type="submit" className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 font-medium">Add to Inventory</button></div>
-              </form>
-           </Card>
-        </div>
-      )}
-
-      {/* Add Transaction Modal */}
-      {isTransactionModalOpen && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
-           <Card className="w-full max-w-md p-6">
-              <div className="flex justify-between items-center mb-4">
-                 <h3 className="text-lg font-bold text-slate-800">{transType === 'purchase' ? 'Add Purchase' : 'Record Payment'}</h3>
-                 <Badge type={transType} />
-              </div>
-              <form onSubmit={handleAddTransaction} className="space-y-4">
-                 
-                 {/* Product Selection for Purchases */}
-                 {transType === 'purchase' && (
-                    <div className="bg-slate-50 p-3 rounded-lg border border-slate-200">
-                       <label className="block text-xs font-bold text-slate-500 uppercase tracking-wide mb-2">Select from Inventory (Optional)</label>
-                       <select 
-                          className="w-full border border-slate-300 rounded px-3 py-2 mb-3"
-                          value={selectedProductId}
-                          onChange={(e) => setSelectedProductId(e.target.value)}
-                       >
-                          <option value="">-- Custom Item / No Inventory --</option>
-                          {products.map(p => (
-                             <option key={p.id} value={p.id}>{p.name} (Stock: {p.stock} | ${p.price})</option>
-                          ))}
-                       </select>
-                       
-                       {selectedProductId && (
-                          <div className="flex items-center gap-3">
-                             <div className="flex-1">
-                                <label className="block text-xs text-slate-500 mb-1">Quantity</label>
-                                <input type="number" min="1" className="w-full border border-slate-300 rounded px-2 py-1" value={purchaseQty} onChange={(e) => setPurchaseQty(e.target.value)}/>
-                             </div>
-                             <div className="flex-1 text-right">
-                                <label className="block text-xs text-slate-500 mb-1">Unit Price</label>
-                                <div className="font-semibold">${products.find(p => p.id === selectedProductId)?.price}</div>
-                             </div>
-                          </div>
-                       )}
-                    </div>
-                 )}
-
-                 <div>
-                   <label className="block text-sm font-medium text-slate-700 mb-1">Total Amount ($)</label>
-                   <input type="number" step="0.01" required className="w-full border border-slate-300 rounded px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:outline-none text-lg font-semibold" value={transAmount} onChange={(e) => setTransAmount(e.target.value)} />
-                 </div>
-                 <div>
-                   <label className="block text-sm font-medium text-slate-700 mb-1">Description</label>
-                   <input type="text" placeholder={selectedProductId ? "Auto-filled from inventory" : "Description"} className="w-full border border-slate-300 rounded px-3 py-2" value={transDesc} onChange={(e) => setTransDesc(e.target.value)} />
-                 </div>
-                 <div>
-                   <label className="block text-sm font-medium text-slate-700 mb-1">Date</label>
-                   <input type="date" required className="w-full border border-slate-300 rounded px-3 py-2" value={transDate} onChange={(e) => setTransDate(e.target.value)}/>
-                 </div>
-                 <div className="flex justify-end gap-3 mt-6">
-                    <button type="button" onClick={() => setIsTransactionModalOpen(false)} className="px-4 py-2 text-slate-600 hover:bg-slate-100 rounded">Cancel</button>
-                    <button type="submit" className={`px-4 py-2 text-white rounded font-medium ${transType === 'purchase' ? 'bg-red-600 hover:bg-red-700' : 'bg-emerald-600 hover:bg-emerald-700'}`}>Confirm {transType === 'purchase' ? 'Debit' : 'Credit'}</button>
-                 </div>
-              </form>
-           </Card>
-        </div>
-      )}
-
     </div>
   );
 }
